@@ -1,0 +1,23 @@
+# env
+.env
+*.env
+
+# python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Logs / outputs
+logs/
+*.log
+*.tsv
+*.csv
+
+
+# OS
+.DS_Store
+Thumbs.db
+
+# docker
+clickhouse_data/
