@@ -1,5 +1,4 @@
 from datetime import datetime
-from typing import Tuple, List, Dict, Any
 
 from lib.mysql import mysql_conn
 from lib.clickhouse import ch_client
@@ -8,20 +7,20 @@ from config import BATCH_SIZE
 
 SQL_USERS = """
 SELECT
-  CAST(uo.id AS SIGNED)      AS id,
-  u.id                       AS uuid,
-  u.email                    AS email,
+  CAST(uo.id AS SIGNED)        AS id,
+  u.id                         AS uuid,
+  u.email                      AS email,
   COALESCE(ul.lms_user_id, '') AS lms_user_id,
-  uo.organization_id         AS organization_id,
-  uo.last_login_at           AS login_at,
+  uo.organization_id           AS organization_id,
+  uo.last_login_at             AS login_at,
   CASE
-  WHEN EXISTS (
-    SELECT 1
-    FROM dreamshaper.cluster_administrator ca
-    WHERE ca.user_id = u.id
-  ) THEN 'Teacher'
-  ELSE 'Student'
-END AS role
+    WHEN EXISTS (
+      SELECT 1
+      FROM dreamshaper.cluster_administrator ca
+      WHERE ca.user_id = u.id
+    ) THEN 'Teacher'
+    ELSE 'Student'
+  END AS role
 FROM dreamshaper.user_organization uo
 JOIN dreamshaper.user u
   ON u.id = uo.user_id
@@ -63,17 +62,25 @@ def run_users() -> None:
             if not rows:
                 break
 
-            # prepare insert
             data = []
+            history_data = []
             for r in rows:
-                data.append([
-                      int(r["id"]),
-                        str(r["uuid"]),
-                        (r["email"] or ""),
-                        str(r["lms_user_id"] or ""),
-                        int(r["organization_id"]),
-                        r["login_at"],
-                        str(r["role"] or ""),
+                row = [
+                    int(r["id"]),
+                    str(r["uuid"]),
+                    str(r["email"] or ""),
+                    str(r["lms_user_id"] or ""),
+                    int(r["organization_id"]),
+                    r["login_at"],
+                    str(r["role"] or ""),
+                ]
+                data.append(row)
+                history_data.append([
+                    int(r["organization_id"]),
+                    int(r["id"]),
+                    str(r["uuid"]),
+                    r["login_at"],
+                    str(r["role"] or ""),
                 ])
 
             ch.insert(
@@ -81,10 +88,14 @@ def run_users() -> None:
                 data,
                 column_names=["id", "uuid", "email", "lms_user_id", "organization_id", "login_at", "role"],
             )
+            ch.insert(
+                "warehouse.user_login_history",
+                history_data,
+                column_names=["organization_id", "user_id", "uuid", "login_at", "role"],
+            )
 
             total += len(rows)
 
-            # advance watermark to last row
             last_row = rows[-1]
             last_run_at = last_row["login_at"]
             last_id = int(last_row["id"])
