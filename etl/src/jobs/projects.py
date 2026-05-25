@@ -87,12 +87,23 @@ def run_projects() -> None:
                 break
 
             data = []
+            history_data = []
             for r in rows:
                 data.append([
                     int(r["organization_id"]),
                     int(r["project_id"]),
                     float(r["percentage"] or 0),
                     str(r["uuid"] or ""),
+                    str(r["status"] or ""),
+                    r["p_updated_at"],
+                    r["m_updated_at"],
+                    r["wm_ts"],
+                ])
+                history_data.append([
+                    int(r["organization_id"]),
+                    int(r["project_id"]),
+                    str(r["uuid"] or ""),
+                    float(r["percentage"] or 0),
                     str(r["status"] or ""),
                     r["p_updated_at"],
                     r["m_updated_at"],
@@ -107,6 +118,21 @@ def run_projects() -> None:
                     "project_id",
                     "percentage",
                     "uuid",
+                    "status",
+                    "p_updated_at",
+                    "m_updated_at",
+                    "version_ts",
+                ],
+            )
+
+            ch.insert(
+                "warehouse.project_progress_history",
+                history_data,
+                column_names=[
+                    "organization_id",
+                    "project_id",
+                    "uuid",
+                    "percentage",
                     "status",
                     "p_updated_at",
                     "m_updated_at",
