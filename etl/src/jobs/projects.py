@@ -31,13 +31,10 @@ JOIN dreamshaper.membership m
 
 WHERE p.deleted_at IS NULL
 
-  -- ✅ evita inserir membership “quebrada”
   AND m.user_id IS NOT NULL
 
-  -- 🔒 cutoff fixo por execução para o job terminar (não roda infinito)
   AND GREATEST(p.updated_at, m.updated_at) <= %(cutoff_ts)s
 
-  -- incremental por watermark (timestamp + row_key)
   AND (
     GREATEST(p.updated_at, m.updated_at) > %(last_run_at)s
     OR (
@@ -61,7 +58,6 @@ def run_projects() -> None:
     job = "projects"
     last_run_at, last_id = get_watermark(job)
 
-    # Cutoff fixo: “até agora - lag”
     cutoff_ts = datetime.now(timezone.utc) - timedelta(minutes=PROJECTS_LAG_MINUTES)
 
     print(f"[projects] starting from last_run_at={last_run_at} last_id={last_id}")
@@ -81,7 +77,6 @@ def run_projects() -> None:
                         {
                             "last_run_at": last_run_at,
                             "last_id": last_id,
-                            # MySQL costuma trabalhar com datetime naive; se o seu mysql_conn já retorna tz-aware, pode manter.
                             "cutoff_ts": cutoff_ts.replace(tzinfo=None),
                             "limit": BATCH_SIZE,
                         },
@@ -97,10 +92,11 @@ def run_projects() -> None:
                     int(r["organization_id"]),
                     int(r["project_id"]),
                     float(r["percentage"] or 0),
-                    str(r["uuid"] or ""),        # ✅ nunca vira "None"
+                    str(r["uuid"] or ""),
                     str(r["status"] or ""),
                     r["p_updated_at"],
                     r["m_updated_at"],
+                    r["wm_ts"],
                 ])
 
             ch.insert(
@@ -114,23 +110,21 @@ def run_projects() -> None:
                     "status",
                     "p_updated_at",
                     "m_updated_at",
+                    "version_ts",
                 ],
             )
 
             total += len(rows)
 
-            # Avança cursor para o último registro do lote (já ordenado)
             last_row = rows[-1]
             last_run_at = last_row["wm_ts"]
 
             rk = last_row.get("row_key")
             if rk is None:
-                # Isso não deveria acontecer com COALESCE + m.user_id IS NOT NULL
                 raise ValueError(f"[projects] row_key veio NULL. last_row={last_row}")
 
             last_id = int(rk)
 
-            # Guarda watermark máximo da execução
             if last_run_at > max_ts or (last_run_at == max_ts and last_id > max_id):
                 max_ts = last_run_at
                 max_id = last_id
